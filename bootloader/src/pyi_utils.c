@@ -57,6 +57,7 @@ typedef void (*sighandler_t)(int);
 #include <string.h>
 #include <sys/stat.h> /* struct stat */
 #include <wchar.h>    /* wchar_t */
+#include <wordexp.h>
 #if defined(__APPLE__) && defined(WINDOWED)
     #include <Carbon/Carbon.h>  /* AppleEventsT */
 #endif
@@ -304,12 +305,36 @@ pyi_get_temp_path(char *buffer, char *runtime_tmpdir)
 int
 pyi_test_temp_path(char *buff)
 {
+    char tmp[PATH_MAX];
+    char *p = NULL;
+    size_t len;
+
     /*
      * If path does not end with directory separator - append it there.
      * On OSX the value from $TMPDIR ends with '/'.
      */
     if (buff[strlen(buff) - 1] != PYI_SEP) {
         strcat(buff, PYI_SEPSTR);
+    }
+
+    snprintf(tmp, sizeof(tmp), "%s", buff);
+    len = strlen(tmp);
+
+    if(tmp[len - 1] == '/') {
+        tmp[len - 1] = 0;
+    }
+
+    for(p = tmp + 1; *p; p++) {
+        if(*p == '/') {
+            *p = 0;
+            if (mkdir(tmp, S_IRWXU) == -1 && errno!=EEXIST) {
+                return 1;
+            }
+            *p = '/';
+        }
+    }
+    if (mkdir(tmp, S_IRWXU) == -1 && errno!=EEXIST) {
+        return 1;
     }
     strcat(buff, "_MEIXXXXXX");
 
@@ -371,10 +396,16 @@ int
 pyi_create_temp_path(ARCHIVE_STATUS *status)
 {
     char *runtime_tmpdir = NULL;
+    wordexp_t p;
+    char buff[PATH_MAX];
 
     if (status->has_temp_directory != true) {
         runtime_tmpdir = pyi_arch_get_option(status, "pyi-runtime-tmpdir");
         if(runtime_tmpdir != NULL) {
+          wordexp(runtime_tmpdir, &p, 0);
+          strcpy(buff, p.we_wordv[0]);
+          runtime_tmpdir = buff;
+          wordfree(&p);
           VS("LOADER: Found runtime-tmpdir %s\n", runtime_tmpdir);
         }
 
